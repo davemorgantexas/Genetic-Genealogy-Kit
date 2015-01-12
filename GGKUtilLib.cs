@@ -39,6 +39,7 @@ namespace Genetic_Genealogy_Kit
         private static Dictionary<string, string> kit_name = null;
 
         private static Dictionary<int, double>[] map = null;
+        private static Dictionary<int, List<int>> sortedMapKeys;
 
         private const string TABLE_kit_master_CREATE_SQL = "CREATE TABLE [kit_master] ([kit_no] TEXT NOT NULL, [name] TEXT NOT NULL, [sex] CHAR NOT NULL DEFAULT U, [disabled] INTEGER NOT NULL DEFAULT 0, [reference] INTEGER NOT NULL DEFAULT 0, [x] INTEGER DEFAULT 0, [y] INTEGER DEFAULT 0,  [roh_status] INTEGER NOT NULL DEFAULT 0,  [last_modified] DATETIME DEFAULT CURRENT_TIMESTAMP, CONSTRAINT [sqlite_autoindex_kit_master_1] PRIMARY KEY ([kit_no]))";
         private const string TABLE_kit_autosomal_CREATE_SQL = "CREATE TABLE [kit_autosomal] ([kit_no] TEXT REFERENCES [kit_master]([kit_no]) ON DELETE CASCADE ON UPDATE CASCADE,[rsid] TEXT NOT NULL,[chromosome] TEXT NOT NULL,[position] INTEGER NOT NULL,[genotype] TEXT NOT NULL,CONSTRAINT [sqlite_autoindex_kit_autosomal_1] PRIMARY KEY ([kit_no], [rsid]))";
@@ -447,6 +448,12 @@ namespace Genetic_Genealogy_Kit
                 }
                 reader.Close();
             }
+
+            sortedMapKeys = new Dictionary<int, List<int>>();
+            for (int chr = 0; chr < 23; chr++)
+            {
+                sortedMapKeys[chr] = map[chr].Keys.OrderBy(k => k).ToList();
+            }
         }
 
         public static double getLength_in_cM(string chr,int start_pos,int end_pos)
@@ -466,29 +473,36 @@ namespace Genetic_Genealogy_Kit
                 chr_int = int.Parse(chr);
 
             Dictionary<int, double> tmap = map[chr_int - 1];
+            var sortedKeys = sortedMapKeys[chr_int - 1];
+            var sortedKeyPos = sortedKeys.BinarySearch(pos);
 
-            if (!tmap.ContainsKey(pos))
+            if (sortedKeyPos < 0)
             {
-                var prev_pos = from p in tmap.Keys where p <= pos select p;
-                var next_pos = from p in tmap.Keys where p >= pos select p;
+                int nextPosKeyPos = ~sortedKeyPos;
+                int prevPosKeyPos;
 
-                int prev_pos_key = 0;
-                int next_pos_key = 0;
-
-                if (prev_pos.Count() == 0)
-                    prev_pos_key = tmap.Keys.Min();
+                if (nextPosKeyPos == sortedKeys.Count)
+                {
+                    nextPosKeyPos--;
+                    prevPosKeyPos = nextPosKeyPos;
+                }
                 else
-                    prev_pos_key = prev_pos.Max();
+                {
+                    for (prevPosKeyPos = nextPosKeyPos; prevPosKeyPos > 0; prevPosKeyPos--)
+                    {
+                        if (sortedKeys[prevPosKeyPos] < pos)
+                            break;
+                    }
+                }
 
-                if (next_pos.Count() == 0)
-                    next_pos_key = tmap.Keys.Max();
-                else
-                    next_pos_key = next_pos.Min();
+                int next_pos_key = sortedKeys[nextPosKeyPos];
+                int prev_pos_key = sortedKeys[prevPosKeyPos];
+
                 if (next_pos_key == prev_pos_key)
                 {
                     if (next_pos_key < pos)
                     {
-                        prev_pos = from p in tmap.Keys where p < next_pos_key select p;
+                        var prev_pos = from p in tmap.Keys where p < next_pos_key select p;
                         prev_pos_key = prev_pos.Max();
 
                         int diff = next_pos_key - prev_pos_key;
@@ -497,7 +511,7 @@ namespace Genetic_Genealogy_Kit
                     }
                     else
                     {
-                        next_pos = from p in tmap.Keys where p > prev_pos_key select p;
+                        var next_pos = from p in tmap.Keys where p > prev_pos_key select p;
                         next_pos_key = next_pos.Max();
 
                         int diff = next_pos_key - prev_pos_key;
